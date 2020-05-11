@@ -40,6 +40,21 @@ func GetMetrics(c *gin.Context) {
 	render.Data(c, resp, nil)
 }
 
+type EndpointRecv struct {
+	Endpoints []string `json:"endpoints"`
+}
+
+func DelIdxByEndpoint(c *gin.Context) {
+	recv := EndpointRecv{}
+	errors.Dangerous(c.ShouldBindJSON(&recv))
+
+	for _, endpoint := range recv.Endpoints {
+		cache.IndexDB.DelByEndpoint(endpoint)
+	}
+
+	render.Data(c, "ok", nil)
+}
+
 type EndpointMetricRecv struct {
 	Endpoints []string `json:"endpoints"`
 	Metrics   []string `json:"metrics"`
@@ -265,10 +280,11 @@ func GetIndexByClude(c *gin.Context) {
 		excludeList := r.Exclude
 		step := 0
 		dsType := ""
-		tagList := make([]string, 0)
-		tagFilter := make(map[string]struct{})
 
 		for _, endpoint := range r.Endpoints {
+			tagList := make([]string, 0)
+			tagFilter := make(map[string]struct{})
+
 			if endpoint == "" {
 				logger.Debugf("invalid request: lack of endpoint param:%v\n", r)
 				stats.Counter.Set("xclude.miss", 1)

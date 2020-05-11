@@ -49,8 +49,11 @@ func buildEndpointWhere(query, batch, field string) *xorm.Session {
 	session := DB["mon"].Table(new(Endpoint))
 
 	if batch == "" && query != "" {
-		q := "%" + query + "%"
-		session = session.Where("ident like ? or alias like ?", q, q)
+		arr := strings.Fields(query)
+		for i := 0; i < len(arr); i++ {
+			q := "%" + arr[i] + "%"
+			session = session.Where("ident like ? or alias like ?", q, q)
+		}
 	}
 
 	if batch != "" {
@@ -102,8 +105,10 @@ func endpointImport(session *xorm.Session, ident, alias string) error {
 	}
 
 	if has {
-		endpoint.Alias = alias
-		_, err = session.Where("ident=?", ident).Cols("alias").Update(endpoint)
+		if alias != "" {
+			endpoint.Alias = alias
+			_, err = session.Where("ident=?", ident).Cols("alias").Update(endpoint)
+		}
 	} else {
 		_, err = session.Insert(Endpoint{Ident: ident, Alias: alias})
 	}
@@ -139,8 +144,11 @@ func buildEndpointUnderNodeWhere(leafids []int64, query, batch, field string) *x
 	session := DB["mon"].Where("id in (select endpoint_id from node_endpoint where node_id in (" + str.IdsString(leafids) + "))")
 
 	if batch == "" && query != "" {
-		q := "%" + query + "%"
-		session = session.Where("ident like ? or alias like ?", q, q)
+		arr := strings.Fields(query)
+		for i := 0; i < len(arr); i++ {
+			q := "%" + arr[i] + "%"
+			session = session.Where("ident like ? or alias like ?", q, q)
+		}
 	}
 
 	if batch != "" {

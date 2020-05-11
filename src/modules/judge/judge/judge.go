@@ -62,12 +62,12 @@ func ToJudge(historyMap *cache.JudgeItemMap, key string, val *dataobj.JudgeItem,
 	Judge(stra, stra.Exprs, historyData, val, now, history, "", "", "", []bool{})
 }
 
-func Judge(stra *model.Stra, exps []model.Exp, historyData []*dataobj.RRDData, firstItem *dataobj.JudgeItem, now int64, history []dataobj.History, info string, value string, extra string, status []bool) {
+func Judge(stra *model.Stra, exps []model.Exp, historyData []*dataobj.HistoryData, firstItem *dataobj.JudgeItem, now int64, history []dataobj.History, info string, value string, extra string, status []bool) {
 	stats.Counter.Set("running", 1)
 
 	if len(exps) < 1 {
 		stats.Counter.Set("stra.illegal", 1)
-		logger.Warningf("stra:%v exp is null", stra)
+		logger.Warningf("stra:%+v exp is null", stra)
 		return
 	}
 	exp := exps[0]
@@ -86,17 +86,13 @@ func Judge(stra *model.Stra, exps []model.Exp, historyData []*dataobj.RRDData, f
 		Granularity: int(firstItem.Step),
 		Points:      historyData,
 	}
-	if len(history) == 0 {
-		//只有第一个指标是push的模式，可以获取到extra字段
-		h.Extra = firstItem.Extra
-	}
 	history = append(history, h)
 
 	defer func() {
 		if len(exps) == 1 {
 			bs, err := json.Marshal(history)
 			if err != nil {
-				logger.Errorf("Marshal history:%v err:%v", history, err)
+				logger.Errorf("Marshal history:%+v err:%v", history, err)
 			}
 			event := &dataobj.Event{
 				ID:        fmt.Sprintf("s_%d_%s", stra.Id, firstItem.PrimaryKey()),
@@ -110,7 +106,7 @@ func Judge(stra *model.Stra, exps []model.Exp, historyData []*dataobj.RRDData, f
 				Hashid:    getHashId(stra.Id, firstItem),
 			}
 
-			sendEventIfNeed(historyData, status, event, stra.RecoveryDur)
+			sendEventIfNeed(historyData, status, event, stra)
 		}
 	}()
 
@@ -135,7 +131,7 @@ func Judge(stra *model.Stra, exps []model.Exp, historyData []*dataobj.RRDData, f
 					Tags:     "",
 					DsType:   "GAUGE",
 				}
-				Judge(stra, exps[1:], []*dataobj.RRDData{}, judgeItem, now, history, info, value, extra, status)
+				Judge(stra, exps[1:], []*dataobj.HistoryData{}, judgeItem, now, history, info, value, extra, status)
 				return
 			}
 
@@ -143,7 +139,7 @@ func Judge(stra *model.Stra, exps []model.Exp, historyData []*dataobj.RRDData, f
 				firstItem.Endpoint = respData[i].Endpoint
 				firstItem.Tags = getTags(respData[i].Counter)
 				firstItem.Step = respData[i].Step
-				Judge(stra, exps[1:], respData[i].Values, firstItem, now, history, info, value, extra, status)
+				Judge(stra, exps[1:], dataobj.RRDData2HistoryData(respData[i].Values), firstItem, now, history, info, value, extra, status)
 			}
 
 		} else {
@@ -155,25 +151,25 @@ func Judge(stra *model.Stra, exps []model.Exp, historyData []*dataobj.RRDData, f
 				respData, err = GetData(stra, exps[1], firstItem, now, false)
 			}
 			if err != nil {
-				logger.Errorf("stra:%v get query data err:%v", stra, err)
+				logger.Errorf("stra:%+v get query data err:%v", stra, err)
 				return
 			}
 			for i := range respData {
 				firstItem.Endpoint = respData[i].Endpoint
 				firstItem.Tags = getTags(respData[i].Counter)
 				firstItem.Step = respData[i].Step
-				Judge(stra, exps[1:], respData[i].Values, firstItem, now, history, info, value, extra, status)
+				Judge(stra, exps[1:], dataobj.RRDData2HistoryData(respData[i].Values), firstItem, now, history, info, value, extra, status)
 			}
 		}
 	}
 }
 
-func judgeItemWithStrategy(stra *model.Stra, historyData []*dataobj.RRDData, exp model.Exp, firstItem *dataobj.JudgeItem, now int64) (leftValue dataobj.JsonFloat, isTriggered bool) {
+func judgeItemWithStrategy(stra *model.Stra, historyData []*dataobj.HistoryData, exp model.Exp, firstItem *dataobj.JudgeItem, now int64) (leftValue dataobj.JsonFloat, isTriggered bool) {
 	straFunc := exp.Func
 
 	straParam := []interface{}{}
 	if firstItem.Step == 0 {
-		logger.Errorf("wrong step:%v", firstItem)
+		logger.Errorf("wrong step:%+v", firstItem)
 		return
 	}
 	straParam = append(straParam, stra.AlertDur/int(firstItem.Step))
@@ -181,13 +177,13 @@ func judgeItemWithStrategy(stra *model.Stra, historyData []*dataobj.RRDData, exp
 	switch straFunc {
 	case "happen":
 		if len(exp.Params) < 1 {
-			logger.Errorf("stra:%d exp:%v stra param is null", stra.Id, exp)
+			logger.Errorf("stra:%d exp:%+v stra param is null", stra.Id, exp)
 			return
 		}
 		straParam = append(straParam, exp.Params[0])
 	case "c_avg", "c_avg_abs", "c_avg_rate", "c_avg_rate_abs":
 		if len(exp.Params) < 1 {
-			logger.Errorf("stra:%d exp:%v stra param is null", stra.Id, exp)
+			logger.Errorf("stra:%d exp:%+v stra param is null", stra.Id, exp)
 			return
 		}
 
@@ -198,12 +194,12 @@ func judgeItemWithStrategy(stra *model.Stra, historyData []*dataobj.RRDData, exp
 
 		respItems, err := GetData(stra, exp, firstItem, now-int64(exp.Params[0]), true)
 		if err != nil {
-			logger.Errorf("stra:%v %v get compare data err:%v", stra.Id, exp, err)
+			logger.Errorf("stra:%v %+v get compare data err:%v", stra.Id, exp, err)
 			return
 		}
 
 		if len(respItems) != 1 || len(respItems[0].Values) < 1 {
-			logger.Errorf("stra:%d %v get compare data err, respItems:%v", stra.Id, exp, respItems)
+			logger.Errorf("stra:%d %+v get compare data err, respItems:%v", stra.Id, exp, respItems)
 			return
 		}
 
@@ -219,7 +215,7 @@ func judgeItemWithStrategy(stra *model.Stra, historyData []*dataobj.RRDData, exp
 
 	fn, err := ParseFuncFromString(straFunc, straParam, exp.Eopt, exp.Threshold)
 	if err != nil {
-		logger.Errorf("stra:%d %v parse func fail: %v", stra.Id, exp, err)
+		logger.Errorf("stra:%d %+v parse func fail: %v", stra.Id, exp, err)
 		return
 	}
 
@@ -269,7 +265,7 @@ func GetData(stra *model.Stra, exp model.Exp, firstItem *dataobj.JudgeItem, now 
 
 	if len(respData) < 1 {
 		stats.Counter.Set("get.data.null", 1)
-		err = fmt.Errorf("stra:%v get query data is null", stra)
+		err = fmt.Errorf("get query data is null")
 	}
 	return respData, err
 }
@@ -298,7 +294,7 @@ func GetReqs(stra *model.Stra, metric string, endpoints []string, now int64) ([]
 	stats.Counter.Set("get.index", 1)
 	indexsData, err := query.Xclude(req)
 	if err != nil {
-		return reqs, err
+		logger.Warning("get index err:", err)
 	}
 
 	lostSeries := []cache.Series{}
@@ -309,8 +305,8 @@ func GetReqs(stra *model.Stra, metric string, endpoints []string, now int64) ([]
 				Endpoint: index.Endpoint,
 				Metric:   index.Metric,
 				Tag:      "",
-				Step:     index.Step,
-				Dstype:   index.Dstype,
+				Step:     10,
+				Dstype:   "GAUGE",
 				TS:       now,
 			}
 			lostSeries = append(lostSeries, s)
@@ -345,6 +341,10 @@ func GetReqs(stra *model.Stra, metric string, endpoints []string, now int64) ([]
 	}
 
 	seriess := cache.SeriesMap.Get(stra.Id)
+	if len(seriess) == 0 && err != nil {
+		return reqs, err
+	}
+
 	step := 0
 	if len(seriess) > 1 {
 		step = seriess[0].Step
@@ -389,12 +389,12 @@ func GetReqs(stra *model.Stra, metric string, endpoints []string, now int64) ([]
 	return reqs, nil
 }
 
-func sendEventIfNeed(historyData []*dataobj.RRDData, status []bool, event *dataobj.Event, recoveryDur int) {
+func sendEventIfNeed(historyData []*dataobj.HistoryData, status []bool, event *dataobj.Event, stra *model.Stra) {
 	isTriggered := true
 	for _, s := range status {
 		isTriggered = isTriggered && s
 	}
-
+	now := time.Now().Unix()
 	lastEvent, exists := cache.LastEvents.Get(event.ID)
 	if isTriggered {
 		event.EventType = EVENT_ALERT
@@ -404,9 +404,8 @@ func sendEventIfNeed(historyData []*dataobj.RRDData, status []bool, event *datao
 			return
 		}
 
-		if len(historyData) > 0 && historyData[len(historyData)-1].Timestamp <= lastEvent.Etime {
-			// 产生过报警的点，就不能再使用来判断了，否则容易出现一分钟报一次的情况
-			// 只需要拿最后一个historyData来做判断即可，因为它的时间最老
+		if now-lastEvent.Etime < int64(stra.AlertDur) {
+			//距离上次告警的时间小于告警统计周期，不再进行告警判断
 			return
 		}
 
@@ -416,7 +415,7 @@ func sendEventIfNeed(historyData []*dataobj.RRDData, status []bool, event *datao
 		// 如果LastEvent是Problem，报OK，否则啥都不做
 		if exists && lastEvent.EventType[0] == 'a' {
 			// 如果配置了留观时长，则距离上一次故障时间要大于等于recoveryDur，才产生恢复事件
-			if time.Now().Unix()-lastEvent.Etime < int64(recoveryDur) {
+			if now-lastEvent.Etime < int64(stra.RecoveryDur) {
 				return
 			}
 
