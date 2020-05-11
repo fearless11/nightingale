@@ -96,6 +96,7 @@ func main() {
 	r := gin.New()
 	routes.Config(r)
 	http.Start(r, "collector", cfg.Logger.Level)
+	http.autoMountEndpoint(cfg.Report.URL, indentity.Identity, cfg.Report.User, cfg.Report.Passwd)
 	ending()
 }
 

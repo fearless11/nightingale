@@ -1,7 +1,10 @@
 package http
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io/ioutil"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
@@ -59,4 +62,53 @@ func Shutdown() {
 	default:
 		log.Println("http server stopped")
 	}
+}
+
+// AutoMountEndpoint report to server
+func AutoMountEndpoint(url string, ip string, user string, passwd string) {
+
+	client := &http.Client{}
+
+	edp := &struct {
+		Endpoints []string `json:"endpoints"`
+	}{
+		Endpoints: []string{ip},
+	}
+	endpoint, err := json.Marshal(edp)
+	if err != nil {
+		log.Println(err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(endpoint))
+	if err != nil {
+		log.Println(err)
+	}
+
+	req.SetBasicAuth(user, passwd)
+	req.Header.Add("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Println(err)
+	}
+
+	byt, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Println(err)
+	}
+	defer resp.Body.Close()
+
+	content := &struct {
+		Err string `json:"err"`
+	}{}
+
+	err = json.Unmarshal(byt, content)
+	if err != nil {
+		log.Println(err)
+	}
+
+	if len(content.Err) != 0 {
+		log.Println("mount endpoint fail", err)
+	}
+
 }

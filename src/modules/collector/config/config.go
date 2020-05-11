@@ -16,10 +16,17 @@ import (
 
 type ConfYaml struct {
 	Identity identity.IdentitySection `yaml:"identity"`
+	Report   Report                   `yaml:"report"`
 	Logger   logger.LoggerSection     `yaml:"logger"`
 	Stra     stra.StraSection         `yaml:"stra"`
 	Worker   worker.WorkerSection     `yaml:"worker"`
 	Sys      sys.SysSection           `yaml:"sys"`
+}
+
+type Report struct {
+	URL    string `yaml:"url"`
+	User   string `yaml:"user"`
+	Passwd string `yaml:"passwd"`
 }
 
 var (
